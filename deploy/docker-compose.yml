@@ -97,8 +97,10 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     volumes:
       - ../deploy/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ../deploy/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
       - ../deploy/grafana:/var/lib/grafana/dashboards:ro
-    ports: ["3000:3000"]
+    # Host port 3300: 3000 is taken by a native Next.js dev server.
+    ports: ["3300:3000"]
     depends_on: [prometheus]
 
 volumes:
