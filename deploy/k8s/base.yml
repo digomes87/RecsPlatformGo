@@ -1,0 +1,210 @@
+# Kubernetes manifests for all three services.
+# Usage: kubectl apply -f deploy/k8s/base.yml -f deploy/k8s/autoscaling.yml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: recsplatform
+---
+# --- Config & Secrets -------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: recsplatform
+data:
+  MONGO_URI: mongodb://mongodb.recsplatform.svc.cluster.local:27017
+  KAFKA_BROKERS: kafka.recsplatform.svc.cluster.local:9092
+  REDIS_ADDR: redis.recsplatform.svc.cluster.local:6379
+  KAFKA_TOPIC: user-events
+  RECOMMENDER_URL: http://recommender:8081
+  ENVIRONMENT: production
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: recsplatform
+type: Opaque
+stringData:
+  JWT_SECRET: change-me-via-external-secrets
+---
+# --- Gateway ----------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: recsplatform
+  labels: {app: gateway}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: gateway}}
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0} # zero-downtime deploys
+  template:
+    metadata:
+      labels: {app: gateway}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: gateway
+          image: ghcr.io/diegogo/recsplatform/gateway:latest
+          ports: [{containerPort: 8080, name: http}]
+          envFrom:
+            - configMapRef: {name: app-config}
+            - secretRef: {name: app-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec: {command: ["sleep", "5"]} # let the LB drain before SIGTERM
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: recsplatform
+spec:
+  selector: {app: gateway}
+  ports: [{port: 80, targetPort: 8080, name: http}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommender
+  namespace: recsplatform
+  labels: {app: recommender}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: recommender}}
+  template:
+    metadata:
+      labels: {app: recommender}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65532}
+      containers:
+        - name: recommender
+          image: ghcr.io/diegogo/recsplatform/recommender:latest
+          ports: [{containerPort: 8081, name: http}]
+          envFrom: [{configMapRef: {name: app-config}}]
+          env:
+            - name: HTTP_ADDR
+              value: ":8081"
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommender
+  namespace: recsplatform
+spec:
+  selector: {app: recommender}
+  ports: [{port: 8081, targetPort: 8081, name: http}]
+---
+# --- Ingestor ---------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestor
+  namespace: recsplatform
+  labels: {app: ingestor}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: ingestor}}
+  template:
+    metadata:
+      labels: {app: ingestor}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65532}
+      containers:
+        - name: ingestor
+          image: ghcr.io/diegogo/recsplatform/ingestor:latest
+          ports: [{containerPort: 8082, name: http}]
+          envFrom: [{configMapRef: {name: app-config}}]
+          env:
+            - name: HTTP_ADDR
+              value: ":8082"
+            - name: BATCH_SIZE
+              value: "500"
+            - name: FLUSH_INTERVAL_MS
+              value: "1000"
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestor
+  namespace: recsplatform
+spec:
+  selector: {app: ingestor}
+  ports: [{port: 8082, targetPort: 8082, name: http}]
+---
+# --- Ingress (public entrypoint) -------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  namespace: recsplatform
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rate-limit: "200"
+    nginx.ingress.kubernetes.io/rate-limit-burst: "400"
+spec:
+  rules:
+    - host: api.recsplatform.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port: {number: 80}
