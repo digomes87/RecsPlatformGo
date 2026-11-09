@@ -1,0 +1,15 @@
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+COPY pkg/go.mod pkg/go.sum* ./pkg/
+COPY services/ingestor/go.mod services/ingestor/go.sum* ./services/ingestor/
+RUN cd services/ingestor && go mod download 2>/dev/null || true
+ENV GOWORK=off
+COPY pkg ./pkg
+COPY services/ingestor ./services/ingestor
+RUN --mount=type=cache,target=/go/pkg/mod cd services/ingestor && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/ingestor ./cmd/ingestor
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/ingestor /ingestor
+EXPOSE 8082
+USER nonroot
+ENTRYPOINT ["/ingestor"]

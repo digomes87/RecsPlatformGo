@@ -1,0 +1,15 @@
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+COPY pkg/go.mod pkg/go.sum* ./pkg/
+COPY services/recommender/go.mod services/recommender/go.sum* ./services/recommender/
+RUN cd services/recommender && go mod download 2>/dev/null || true
+ENV GOWORK=off
+COPY pkg ./pkg
+COPY services/recommender ./services/recommender
+RUN --mount=type=cache,target=/go/pkg/mod cd services/recommender && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/recommender ./cmd/recommender
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/recommender /recommender
+EXPOSE 8081
+USER nonroot
+ENTRYPOINT ["/recommender"]

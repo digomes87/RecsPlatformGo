@@ -1,0 +1,20 @@
+# Multi-stage build: distroless-style scratch image, ~10MB, no shell —
+# small attack surface and fast cold starts on Kubernetes node rotation.
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+
+# Cache dependencies first.
+COPY pkg/go.mod pkg/go.sum* ./pkg/
+COPY services/gateway/go.mod services/gateway/go.sum* ./services/gateway/
+RUN cd services/gateway && go mod download 2>/dev/null || true
+ENV GOWORK=off
+
+COPY pkg ./pkg
+COPY services/gateway ./services/gateway
+RUN --mount=type=cache,target=/go/pkg/mod cd services/gateway && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/gateway ./cmd/gateway
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/gateway /gateway
+EXPOSE 8080
+USER nonroot
+ENTRYPOINT ["/gateway"]
