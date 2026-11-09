@@ -1,0 +1,8 @@
+go 1.27
+
+use (
+	./pkg
+	./services/gateway
+	./services/recommender
+	./services/ingestor
+)
