@@ -1,0 +1,92 @@
+openapi: 3.0.3
+info:
+  title: RecsPlatform Gateway API
+  version: 1.0.0
+  description: >
+    Public API of the recommendation platform: personalized
+    recommendations and interaction event ingestion.
+servers:
+  - url: http://localhost:28080
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/users/{userID}/recommendations:
+    get:
+      summary: Get personalized recommendations for a user
+      parameters:
+        - {name: userID, in: path, required: true, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 10}}
+      responses:
+        "200":
+          description: Recommendations (possibly cached)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recommendation" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /v1/events:
+    post:
+      summary: Ingest a user interaction event (asynchronous)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Event" }
+      responses:
+        "202":
+          description: Event accepted for processing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, example: accepted}
+                  event_id: {type: string}
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  responses:
+    Error:
+      description: Error payload
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/AppError" }
+  schemas:
+    AppError:
+      type: object
+      properties:
+        code: {type: string, example: rate_limited}
+        message: {type: string}
+    Event:
+      type: object
+      required: [event_id, user_id, item_id, event_type]
+      properties:
+        event_id: {type: string, description: Client-generated idempotency key}
+        user_id: {type: string}
+        item_id: {type: string}
+        event_type: {type: string, enum: [view, like, purchase, rating]}
+        value: {type: number, description: "e.g. rating stars (1-5)"}
+        timestamp: {type: string, format: date-time}
+    Item:
+      type: object
+      properties:
+        item_id: {type: string}
+        score: {type: number}
+        reason: {type: string}
+    Recommendation:
+      type: object
+      properties:
+        user_id: {type: string}
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Item" }
+        cached: {type: boolean}
+        expire_at: {type: string, format: date-time}
