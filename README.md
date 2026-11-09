@@ -50,7 +50,7 @@ make load-test   # vegeta against /v1/users/{id}/recommendations
 make down
 ```
 
-- Grafana: http://localhost:3300 (dashboard "RecsPlatform — Service Overview")
+- Grafana: http://localhost:3000 (dashboard "RecsPlatform — Service Overview")
 - Prometheus: http://localhost:9090
 - Gateway: http://localhost:28080 (8080/18080 are usually taken locally)
 
