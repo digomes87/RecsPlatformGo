@@ -117,6 +117,20 @@ func (h *Handler) PostEvents(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "event_id": evt.EventID})
 }
 
+// Root serves GET / with a small service descriptor so anyone hitting the
+// base URL knows where to go next.
+func (h *Handler) Root(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]any{
+		"service": "recsplatform-gateway",
+		"endpoints": []string{
+			"GET  /v1/users/{userID}/recommendations?limit=N",
+			"POST /v1/events",
+			"GET  /healthz",
+			"GET  /metrics",
+		},
+	})
+}
+
 // Health is the liveness probe payload.
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})

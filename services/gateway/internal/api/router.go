@@ -28,6 +28,7 @@ func Router(h *Handler, log *slog.Logger, jwtSecret string, rateLimit *middlewar
 	api = rateLimit.Middleware(rateKey)(api)
 
 	root := http.NewServeMux()
+	root.HandleFunc("GET /{$}", withRoute("/", h.Root))
 	root.HandleFunc("GET /healthz", withRoute("/healthz", h.Health))
 	root.Handle("GET /metrics", promhttp.Handler())
 	root.Handle("/v1/", api)
